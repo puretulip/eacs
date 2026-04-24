@@ -58,9 +58,17 @@ def train_bound(mode: str, seed: int, use_amp: bool = True):
     ckpt_path = out_dir / f"{mode}.pt"
     metrics_path = out_dir / f"{mode}_metrics.json"
 
-    if ckpt_path.exists():
-        print(f"[{mode} seed={seed}] SKIP — 이미 존재: {ckpt_path}")
+    # 완료 판정: metrics.json 존재 (= 학습 루프 끝나고 최종 평가까지 완료)
+    # ckpt.pt만으로는 중간에 죽은 경우와 구분 불가
+    if metrics_path.exists():
+        print(f"[{mode} seed={seed}] SKIP — 완료된 결과 존재: {metrics_path}")
         return
+
+    # ckpt.pt는 있지만 metrics.json이 없는 경우 — 이전 실행이 중간에 죽음
+    # 재학습하되 경고 출력
+    if ckpt_path.exists():
+        print(f"[{mode} seed={seed}] WARN — ckpt는 있지만 metrics.json 없음. "
+              f"이전 학습이 미완료. 재학습 시작 (ckpt 덮어씀).", flush=True)
 
     set_seed(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -197,8 +205,25 @@ def main():
     ensure_dirs()
 
     modes = ["lower", "upper"] if args.mode == "both" else [args.mode]
+    failures = []
     for m in modes:
-        train_bound(m, args.seed, use_amp=not args.no_amp)
+        try:
+            train_bound(m, args.seed, use_amp=not args.no_amp)
+        except Exception as e:
+            # 한 모드 실패가 다른 모드를 막지 않도록
+            import traceback
+            print(f"\n{'='*60}", flush=True)
+            print(f"[ERROR] {m} seed={args.seed} 실패: {e}", flush=True)
+            print(traceback.format_exc(), flush=True)
+            print(f"{'='*60}\n", flush=True)
+            failures.append((m, str(e)))
+
+    if failures:
+        print(f"\n=== 실패한 모드 ===")
+        for m, err in failures:
+            print(f"  {m}: {err}")
+        import sys
+        sys.exit(1)
 
 
 if __name__ == "__main__":
