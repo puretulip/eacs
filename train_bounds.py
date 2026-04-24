@@ -1,20 +1,27 @@
 """
-train_bounds.py — Lower / Upper Bound 학습 스크립트
-======================================================
+train_bounds.py — Lower / Upper Bound 학습 스크립트 (Phase 1/2 공용)
+======================================================================
 
-Lower Bound: proxy data만으로 Student(ResNet-18) CE 학습
-Upper Bound: 전체 train data로 ResNet-18 CE 학습 (centralized)
+Lower Bound: proxy data만으로 Student 모델 fine-tuning
+Upper Bound: 전체 train data로 Student 모델 fine-tuning (centralized)
 
-둘 다 α와 무관하므로 seed당 1번씩만 돌리면 됨.
+Phase 1 (주장 A, 동일 모델): Bounds = ResNet-18 (pretrained)
+Phase 2 (주장 B, small→large): Bounds = ResNet-50 (pretrained)
+
+모두 α와 무관하므로 seed당 1번씩만 돌리면 됨.
+Phase 1과 Phase 2는 별도 디렉토리에 저장 — 독립적.
 
 실행:
-  python train_bounds.py --seed 42 --mode lower
-  python train_bounds.py --seed 42 --mode upper
-  python train_bounds.py --seed 42 --mode both
+  # Phase 1 (ResNet-18, 메인)
+  python train_bounds.py --phase 1 --seed 42 --mode both
+
+  # Phase 2 (ResNet-50, small→large 보조)
+  python train_bounds.py --phase 2 --seed 42 --mode both
 
 EC2 분산 시:
-  EC2 A: python train_bounds.py --seed 42 --mode both
-  EC2 B: python train_bounds.py --seed 123 --mode both
+  EC2 A: python train_bounds.py --phase 1 --seed 42 --mode both
+  EC2 B: python train_bounds.py --phase 2 --seed 42 --mode both
+  ...
 """
 
 import argparse
@@ -31,29 +38,36 @@ from common import (
     partition_path, bounds_dir, logs_dir,
     set_seed, EpochTimer,
     ParquetImageDataset, load_parquet_table, get_transforms,
-    build_resnet18, train_one_epoch, evaluate,
+    build_model_for_role, train_one_epoch, evaluate,
     save_json,
 )
 
 
 # =============================================================================
-# 하이퍼파라미터 (Bounds용)
+# 하이퍼파라미터 (Phase별)
 # =============================================================================
-EPOCHS_LOWER = 100      # proxy만이라 더 많은 에폭 필요
-EPOCHS_UPPER = 60       # 전체 데이터, 더 적은 에폭으로도 수렴
-BATCH_SIZE = 128
-LR = 0.1
-WD = 5e-4
+# Pretrained fine-tuning 기준
+EPOCHS_LOWER = 40       # pretrained이라 빠르게 수렴
+EPOCHS_UPPER = 25       # 전체 데이터는 더 빨리 수렴
+LR = 0.01               # pretrained fine-tuning 표준값
+WD = 1e-4
 MOMENTUM = 0.9
 NUM_WORKERS = 8
 NUM_CLASSES = 100
 
+# Phase별 batch size (모델 크기 반영)
+BATCH_SIZE_BY_PHASE = {
+    1: 128,   # ResNet-18 — 넉넉
+    2: 64,    # ResNet-50 — 메모리 고려
+}
 
-def train_bound(mode: str, seed: int, use_amp: bool = True):
-    """mode in {'lower', 'upper'}."""
+
+def train_bound(mode: str, seed: int, phase: int, use_amp: bool = True):
+    """mode in {'lower', 'upper'}, phase in {1, 2}."""
     assert mode in ("lower", "upper")
+    assert phase in (1, 2)
 
-    out_dir = bounds_dir(seed)
+    out_dir = bounds_dir(seed, phase=phase)
     out_dir.mkdir(parents=True, exist_ok=True)
     ckpt_path = out_dir / f"{mode}.pt"
     metrics_path = out_dir / f"{mode}_metrics.json"
@@ -61,14 +75,15 @@ def train_bound(mode: str, seed: int, use_amp: bool = True):
     # 완료 판정: metrics.json 존재 (= 학습 루프 끝나고 최종 평가까지 완료)
     # ckpt.pt만으로는 중간에 죽은 경우와 구분 불가
     if metrics_path.exists():
-        print(f"[{mode} seed={seed}] SKIP — 완료된 결과 존재: {metrics_path}")
+        print(f"[phase{phase} {mode} seed={seed}] SKIP — 완료된 결과: {metrics_path}")
         return
 
     # ckpt.pt는 있지만 metrics.json이 없는 경우 — 이전 실행이 중간에 죽음
-    # 재학습하되 경고 출력
     if ckpt_path.exists():
-        print(f"[{mode} seed={seed}] WARN — ckpt는 있지만 metrics.json 없음. "
+        print(f"[phase{phase} {mode} seed={seed}] WARN — ckpt는 있지만 metrics.json 없음. "
               f"이전 학습이 미완료. 재학습 시작 (ckpt 덮어씀).", flush=True)
+
+    BATCH_SIZE = BATCH_SIZE_BY_PHASE[phase]
 
     set_seed(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -112,9 +127,13 @@ def train_bound(mode: str, seed: int, use_amp: bool = True):
         num_workers=NUM_WORKERS, pin_memory=True)
 
     # =====================================
-    # 모델 / 옵티마이저
+    # 모델 / 옵티마이저 (Phase별 분기)
+    # Phase 1: ResNet-18 pretrained (주장 A)
+    # Phase 2: ResNet-50 pretrained (주장 B)
     # =====================================
-    model = build_resnet18(num_classes=NUM_CLASSES, pretrained=False).to(device)
+    model = build_model_for_role(
+        role="bounds", phase=phase,
+        num_classes=NUM_CLASSES, pretrained=True).to(device)
     optimizer = torch.optim.SGD(
         model.parameters(), lr=LR, momentum=MOMENTUM, weight_decay=WD, nesterov=True)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
@@ -122,8 +141,8 @@ def train_bound(mode: str, seed: int, use_amp: bool = True):
     scaler = torch.cuda.amp.GradScaler() if use_amp else None
 
     timer = EpochTimer(
-        tag=f"{mode}_seed{seed}",
-        log_path=logs_dir() / f"bounds_{mode}_seed{seed}.log"
+        tag=f"p{phase}_{mode}_seed{seed}",
+        log_path=logs_dir(phase=phase) / f"bounds_{mode}_seed{seed}.log"
     )
 
     # =====================================
@@ -176,6 +195,7 @@ def train_bound(mode: str, seed: int, use_amp: bool = True):
     final = evaluate(model, val_loader, device, NUM_CLASSES)
 
     result = {
+        "phase": phase,
         "mode": mode,
         "seed": seed,
         "best_epoch": best_epoch,
@@ -189,31 +209,34 @@ def train_bound(mode: str, seed: int, use_amp: bool = True):
         "time_summary": timer.summary(),
     }
     save_json(result, metrics_path)
-    print(f"\n[{mode} seed={seed}] DONE | best_acc={best_acc:.4f} @ epoch {best_epoch}")
+    print(f"\n[phase{phase} {mode} seed={seed}] DONE | best_acc={best_acc:.4f} "
+          f"@ epoch {best_epoch}")
     print(f"  ckpt    → {ckpt_path}")
     print(f"  metrics → {metrics_path}")
 
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--phase", type=int, choices=[1, 2], required=True,
+                        help="1: 동일 모델 ResNet-18 (주장 A 메인), "
+                             "2: small→large MobileNetV2→ResNet-50 (주장 B 보조)")
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--mode", choices=["lower", "upper", "both"], default="both")
     parser.add_argument("--no-amp", action="store_true",
                         help="Mixed precision 비활성화")
     args = parser.parse_args()
 
-    ensure_dirs()
+    ensure_dirs(phase=args.phase)
 
     modes = ["lower", "upper"] if args.mode == "both" else [args.mode]
     failures = []
     for m in modes:
         try:
-            train_bound(m, args.seed, use_amp=not args.no_amp)
+            train_bound(m, args.seed, phase=args.phase, use_amp=not args.no_amp)
         except Exception as e:
-            # 한 모드 실패가 다른 모드를 막지 않도록
             import traceback
             print(f"\n{'='*60}", flush=True)
-            print(f"[ERROR] {m} seed={args.seed} 실패: {e}", flush=True)
+            print(f"[ERROR] phase{args.phase} {m} seed={args.seed} 실패: {e}", flush=True)
             print(traceback.format_exc(), flush=True)
             print(f"{'='*60}\n", flush=True)
             failures.append((m, str(e)))

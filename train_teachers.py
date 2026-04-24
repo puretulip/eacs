@@ -1,24 +1,20 @@
 """
-train_teachers.py — Teacher 학습 + Logit/Quality 사전 수집
-=============================================================
+train_teachers.py — Teacher 학습 + Logit/Quality 사전 수집 (Phase 1/2 공용)
+===============================================================================
 
-하나의 (α, seed) 조합에 대해:
-  1. K=5명의 Teacher를 독립 학습 (각자의 private data로)
+하나의 (α, seed, phase) 조합에 대해:
+  1. K=5명의 Teacher를 독립 학습 (각자의 Non-IID private data로)
   2. Proxy data에 대한 logit 사전 수집 (KD 재학습 시 재사용)
   3. Expertise Matrix (per-class F1/Precision/Recall) 계산
   4. Layer 2 지표 (logit entropy, top-1 conf 등) 계산
-  5. 결과를 teachers_dir로 저장
+  5. 결과를 phase별 teachers_dir로 저장
+
+Phase 1 (주장 A, 메인): Teacher = ResNet-18 (pretrained, full fine-tune)
+Phase 2 (주장 B, 보조): Teacher = MobileNetV2 (pretrained, full fine-tune)
 
 실행:
-  python train_teachers.py --alpha 0.1 --seed 42
-  python train_teachers.py --alpha 0.5 --seed 42
-  ...
-
-EC2 분산 예시 (10개 조합):
-  EC2 A: α={0.1, 0.5},   seed=42
-  EC2 B: α={1.0, 10.0},  seed=42
-  EC2 C: α={100.0},      seed=42, 그리고 α={0.1}, seed=123
-  ... 원하는 방식으로 쪼개기
+  python train_teachers.py --phase 1 --alpha 0.1 --seed 42
+  python train_teachers.py --phase 2 --alpha 0.1 --seed 42
 """
 
 import argparse
@@ -35,7 +31,7 @@ from common import (
     partition_path, teachers_dir, logs_dir,
     set_seed, EpochTimer,
     ParquetImageDataset, load_parquet_table, get_transforms,
-    build_resnet18, train_one_epoch, evaluate,
+    build_model_for_role, train_one_epoch, evaluate,
     collect_logits, logit_quality_metrics,
     save_json,
 )
@@ -44,22 +40,30 @@ from common import (
 # =============================================================================
 # 하이퍼파라미터
 # =============================================================================
-EPOCHS_TEACHER = 60
-BATCH_SIZE = 128
-LR = 0.1
-WD = 5e-4
+# Pretrained Teacher full fine-tuning
+EPOCHS_TEACHER = 30       # pretrained이라 수렴 빠름
+LR = 0.01
+WD = 1e-4
 MOMENTUM = 0.9
 NUM_WORKERS = 8
 NUM_CLASSES = 100
 NUM_CLIENTS = 5
 
+# Phase별 batch size
+BATCH_SIZE_BY_PHASE = {
+    1: 128,  # ResNet-18 Teacher
+    2: 128,  # MobileNetV2 Teacher (더 작으므로 여유 있음)
+}
+
 
 def train_single_teacher(k: int, indices: np.ndarray, train_ds_full,
                          val_loader, device, seed: int, alpha: float,
-                         use_amp: bool = True):
-    """단일 Teacher 학습."""
+                         phase: int, use_amp: bool = True):
+    """단일 Teacher 학습. phase에 따라 모델 종류가 달라짐."""
     # seed를 (k, seed)로 파생시켜 Teacher 간 다른 초기화
     set_seed(seed * 1000 + k)
+
+    BATCH_SIZE = BATCH_SIZE_BY_PHASE[phase]
 
     # 데이터
     if len(indices) < BATCH_SIZE:
@@ -74,8 +78,10 @@ def train_single_teacher(k: int, indices: np.ndarray, train_ds_full,
                         num_workers=NUM_WORKERS, pin_memory=True,
                         drop_last=(len(subset) >= bs * 2))
 
-    # 모델
-    model = build_resnet18(num_classes=NUM_CLASSES, pretrained=False).to(device)
+    # 모델 (Phase별: Phase 1 = ResNet-18, Phase 2 = MobileNetV2, 둘 다 pretrained)
+    model = build_model_for_role(
+        role="teacher", phase=phase,
+        num_classes=NUM_CLASSES, pretrained=True).to(device)
     optimizer = torch.optim.SGD(
         model.parameters(), lr=LR, momentum=MOMENTUM, weight_decay=WD, nesterov=True)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -84,8 +90,8 @@ def train_single_teacher(k: int, indices: np.ndarray, train_ds_full,
     scaler = torch.cuda.amp.GradScaler() if use_amp else None
 
     timer = EpochTimer(
-        tag=f"teacher_k{k}_a{alpha}_s{seed}",
-        log_path=logs_dir() / f"teacher_a{alpha}_s{seed}_k{k}.log"
+        tag=f"p{phase}_teacher_k{k}_a{alpha}_s{seed}",
+        log_path=logs_dir(phase=phase) / f"teacher_a{alpha}_s{seed}_k{k}.log"
     )
 
     for epoch in range(EPOCHS_TEACHER):
@@ -105,10 +111,10 @@ def train_single_teacher(k: int, indices: np.ndarray, train_ds_full,
     return model, final_val, timer.summary()
 
 
-def run_teachers(alpha: float, seed: int, use_amp: bool = True,
-                 force: bool = False):
-    """하나의 (α, seed) 조합에 대해 K명의 Teacher 학습 + logit 수집."""
-    out_dir = teachers_dir(alpha, seed)
+def run_teachers(alpha: float, seed: int, phase: int,
+                 use_amp: bool = True, force: bool = False):
+    """하나의 (α, seed, phase) 조합에 대해 K명의 Teacher 학습 + logit 수집."""
+    out_dir = teachers_dir(alpha, seed, phase=phase)
     out_dir.mkdir(parents=True, exist_ok=True)
     teachers_path = out_dir / "teachers.pt"
     logits_path = out_dir / "teacher_logits.pt"
@@ -116,14 +122,13 @@ def run_teachers(alpha: float, seed: int, use_amp: bool = True,
     meta_path = out_dir / "metadata.json"
 
     # 완료 판정: metadata.json 존재 (= 전체 파이프라인 끝)
-    # teachers.pt는 중간에 죽은 경우에도 존재할 수 있음 (Teacher 1명 완료 시마다 저장)
     if meta_path.exists() and not force:
-        print(f"[α={alpha}, seed={seed}] SKIP — 완료된 결과 존재: {meta_path}")
+        print(f"[phase{phase} α={alpha}, seed={seed}] SKIP — 완료: {meta_path}")
         return
 
     # 중간 파일만 있는 경우 경고 출력
     if (teachers_path.exists() or logits_path.exists()) and not force:
-        print(f"[α={alpha}, seed={seed}] WARN — 중간 파일 존재하지만 "
+        print(f"[phase{phase} α={alpha}, seed={seed}] WARN — 중간 파일 존재하지만 "
               f"metadata.json 없음. 이전 실행이 미완료. 재학습 시작.",
               flush=True)
 
@@ -176,10 +181,10 @@ def run_teachers(alpha: float, seed: int, use_amp: bool = True,
     time_summaries = {}
 
     for k in range(NUM_CLIENTS):
-        print(f"\n--- Teacher {k} 학습 ---")
+        print(f"\n--- Teacher {k} 학습 (phase {phase}) ---")
         model, val_m, tsum = train_single_teacher(
             k, client_indices[k], train_ds_full, val_loader, device,
-            seed, alpha, use_amp=use_amp)
+            seed, alpha, phase=phase, use_amp=use_amp)
         teacher_states[k] = {kk: v.cpu() for kk, v in model.state_dict().items()}
         teacher_val_metrics[k] = {
             "val_accuracy": val_m["accuracy"],
@@ -197,7 +202,10 @@ def run_teachers(alpha: float, seed: int, use_amp: bool = True,
     proxy_labels = None
 
     for k in range(NUM_CLIENTS):
-        model = build_resnet18(num_classes=NUM_CLASSES, pretrained=False).to(device)
+        # 빈 모델 생성 후 state_dict 로드 — pretrained 다운로드 방지
+        model = build_model_for_role(
+            role="teacher", phase=phase,
+            num_classes=NUM_CLASSES, pretrained=False).to(device)
         model.load_state_dict({kk: v.to(device) for kk, v in teacher_states[k].items()})
         logits, labels = collect_logits(model, proxy_loader_noaug, device)
         teacher_logits[k] = logits
@@ -278,6 +286,7 @@ def run_teachers(alpha: float, seed: int, use_amp: bool = True,
     # 메타데이터 저장
     # =====================================
     meta = {
+        "phase": phase,
         "alpha": alpha,
         "seed": seed,
         "num_clients": NUM_CLIENTS,
@@ -294,7 +303,7 @@ def run_teachers(alpha: float, seed: int, use_amp: bool = True,
     }
     save_json(meta, meta_path)
 
-    print(f"\n===== α={alpha}, seed={seed} 완료 =====")
+    print(f"\n===== phase{phase} α={alpha}, seed={seed} 완료 =====")
     print(f"  teachers.pt       → {teachers_path}")
     print(f"  teacher_logits.pt → {logits_path}")
     print(f"  expertise.npz     → {expertise_path}")
@@ -303,14 +312,17 @@ def run_teachers(alpha: float, seed: int, use_amp: bool = True,
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--phase", type=int, choices=[1, 2], required=True,
+                        help="1: 동일 모델 ResNet-18 (주장 A 메인), "
+                             "2: small→large MobileNetV2→ResNet-50 (주장 B 보조)")
     parser.add_argument("--alpha", type=float, required=True)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--no-amp", action="store_true")
     args = parser.parse_args()
 
-    ensure_dirs()
-    run_teachers(args.alpha, args.seed,
+    ensure_dirs(phase=args.phase)
+    run_teachers(args.alpha, args.seed, phase=args.phase,
                  use_amp=not args.no_amp, force=args.force)
 
 

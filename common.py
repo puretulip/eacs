@@ -50,25 +50,35 @@ CLASS_MAPPING = DATA_ROOT / "class_mapping.txt"
 
 
 def partition_path(alpha, seed):
+    # 파티션은 Phase와 무관 (두 Phase가 동일 파티션 공유)
     return RESULTS_ROOT / "partitions" / f"alpha{alpha}_seed{seed}.npz"
 
-def bounds_dir(seed):
-    return RESULTS_ROOT / "bounds" / f"seed{seed}"
+def bounds_dir(seed, phase=1):
+    return RESULTS_ROOT / f"phase{phase}" / "bounds" / f"seed{seed}"
 
-def teachers_dir(alpha, seed):
-    return RESULTS_ROOT / "teachers" / f"alpha{alpha}_seed{seed}"
+def teachers_dir(alpha, seed, phase=1):
+    return RESULTS_ROOT / f"phase{phase}" / "teachers" / f"alpha{alpha}_seed{seed}"
 
-def kd_dir(alpha, seed, weighting):
-    return RESULTS_ROOT / "kd_runs" / f"alpha{alpha}_seed{seed}_{weighting}"
+def kd_dir(alpha, seed, weighting, phase=1):
+    return RESULTS_ROOT / f"phase{phase}" / "kd_runs" / f"alpha{alpha}_seed{seed}_{weighting}"
 
-def logs_dir():
-    return RESULTS_ROOT / "logs"
+def logs_dir(phase=None):
+    if phase is None:
+        return RESULTS_ROOT / "logs"
+    return RESULTS_ROOT / f"phase{phase}" / "logs"
 
 
-def ensure_dirs():
-    """결과 디렉토리 구조 생성."""
-    for sub in ["partitions", "bounds", "teachers", "kd_runs", "logs", "figures"]:
-        (RESULTS_ROOT / sub).mkdir(parents=True, exist_ok=True)
+def ensure_dirs(phase=None):
+    """결과 디렉토리 구조 생성.
+    phase=None: 파티션/공통 디렉토리만
+    phase=1 or 2: 해당 phase 디렉토리 포함
+    """
+    (RESULTS_ROOT / "partitions").mkdir(parents=True, exist_ok=True)
+    (RESULTS_ROOT / "logs").mkdir(parents=True, exist_ok=True)
+    (RESULTS_ROOT / "figures").mkdir(parents=True, exist_ok=True)
+    if phase is not None:
+        for sub in ["bounds", "teachers", "kd_runs", "logs", "figures"]:
+            (RESULTS_ROOT / f"phase{phase}" / sub).mkdir(parents=True, exist_ok=True)
 
 
 # =============================================================================
@@ -333,14 +343,67 @@ def dirichlet_partition(labels: np.ndarray, num_clients: int,
 # =============================================================================
 # 모델
 # =============================================================================
-def build_resnet18(num_classes: int = 100, pretrained: bool = False):
-    """scratch ResNet-18 (본 실험의 기본)."""
+def build_resnet18(num_classes: int = 100, pretrained: bool = True):
+    """ResNet-18 (11M) — Phase 1 공용 모델.
+
+    Phase 1: Teacher = Student = Bounds = ResNet-18 (pretrained)
+    주장 A 증명용: 동일 모델로 변수 통제, logit이 noise인지를 Layer 2로 증명.
+    """
     if pretrained:
         model = tvm.resnet18(weights=tvm.ResNet18_Weights.IMAGENET1K_V1)
     else:
         model = tvm.resnet18(weights=None)
     model.fc = nn.Linear(model.fc.in_features, num_classes)
     return model
+
+
+def build_mobilenet_v2(num_classes: int = 100, pretrained: bool = True):
+    """MobileNetV2 (3.4M) — Phase 2 Teacher용.
+
+    Phase 2: Small Teacher → Large Student 현실 시나리오.
+    ImageNet-1K pretrained, Non-IID 데이터로 full fine-tuning.
+    """
+    if pretrained:
+        model = tvm.mobilenet_v2(weights=tvm.MobileNet_V2_Weights.IMAGENET1K_V1)
+    else:
+        model = tvm.mobilenet_v2(weights=None)
+    in_features = model.classifier[-1].in_features
+    model.classifier[-1] = nn.Linear(in_features, num_classes)
+    return model
+
+
+def build_resnet50(num_classes: int = 100, pretrained: bool = True):
+    """ResNet-50 (25M) — Phase 2 Student / Bounds용.
+
+    Phase 2에서 서버의 큰 모델을 시뮬레이션. pretrained이므로
+    proxy만으로도 Upper에 근접한 강한 Student 구성.
+    """
+    if pretrained:
+        model = tvm.resnet50(weights=tvm.ResNet50_Weights.IMAGENET1K_V2)
+    else:
+        model = tvm.resnet50(weights=None)
+    model.fc = nn.Linear(model.fc.in_features, num_classes)
+    return model
+
+
+# Phase별 역할 → 모델 매핑
+def build_model_for_role(role: str, phase: int,
+                         num_classes: int = 100, pretrained: bool = True):
+    """Phase와 역할(role)에 맞는 모델을 반환.
+
+    Phase 1 (동일 모델): teacher/student/bounds 모두 ResNet-18
+    Phase 2 (small→large): teacher=MobileNetV2, student/bounds=ResNet-50
+    """
+    assert role in ("teacher", "student", "bounds")
+    assert phase in (1, 2)
+
+    if phase == 1:
+        return build_resnet18(num_classes=num_classes, pretrained=pretrained)
+    else:  # phase == 2
+        if role == "teacher":
+            return build_mobilenet_v2(num_classes=num_classes, pretrained=pretrained)
+        else:
+            return build_resnet50(num_classes=num_classes, pretrained=pretrained)
 
 
 # =============================================================================

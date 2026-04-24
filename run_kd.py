@@ -1,22 +1,28 @@
 """
-run_kd.py — Multi-Teacher KD 학습 스크립트
-==============================================
+run_kd.py — Multi-Teacher KD 학습 스크립트 (Phase 1/2 공용)
+===============================================================
 
-하나의 (α, seed, weighting) 조합에 대해:
-  1. Teacher logit 및 Expertise Matrix 로드
+하나의 (α, seed, weighting, phase) 조합에 대해:
+  1. Teacher logit 및 Expertise Matrix 로드 (phase별 디렉토리)
   2. Weighting 방법으로 가중치 산출
-  3. Student (ResNet-18 scratch)를 KD로 학습
+  3. Student를 KD로 학습 (phase별 모델)
   4. 평가 결과 저장
 
-실행:
-  python run_kd.py --alpha 0.1 --seed 42 --weighting uniform
-  python run_kd.py --alpha 0.1 --seed 42 --weighting top_1
-  python run_kd.py --alpha 0.1 --seed 42 --weighting top_3
+Phase 1 (주장 A, 메인): Student = ResNet-18 pretrained (Teacher와 동일 모델)
+  - 동일 모델로 변수 통제 → Layer 2 지표(logit entropy)가 메인 증거
+  - "dark knowledge 없는 Non-IID logit = noise"를 직접 증명
 
-EC2 분산 예시 (30개 조합):
-  EC2 A: α=0.1, seed=42, weighting={uniform, top_1, top_3}
-  EC2 B: α=0.5, seed=42, weighting={uniform, top_1, top_3}
-  ...
+Phase 2 (주장 B, 보조): Student = ResNet-50 pretrained (Teacher MobileNetV2와 다른 모델)
+  - Small→Large 현실 시나리오 재현
+  - Gap Recovery 음수화를 Layer 3 증거로
+
+KD 설정 (공통):
+  - kd_alpha = 0.3 (CE 30% + KD 70%) — KD 비중 높여 noise 영향 부각
+  - Temperature = 4.0 (Hinton 2015 표준)
+
+실행:
+  python run_kd.py --phase 1 --alpha 0.1 --seed 42 --weighting uniform
+  python run_kd.py --phase 2 --alpha 0.1 --seed 42 --weighting uniform
 """
 
 import argparse
@@ -34,7 +40,7 @@ from common import (
     partition_path, teachers_dir, kd_dir, bounds_dir, logs_dir,
     set_seed, EpochTimer,
     ParquetImageDataset, load_parquet_table, get_transforms, IndexedSubset,
-    build_resnet18, evaluate,
+    build_model_for_role, evaluate,
     save_json,
 )
 
@@ -42,17 +48,23 @@ from common import (
 # =============================================================================
 # 하이퍼파라미터
 # =============================================================================
-EPOCHS_KD = 80
-BATCH_SIZE = 128
-LR = 0.1
-WD = 5e-4
+# Pretrained fine-tuning + Multi-Teacher KD
+EPOCHS_KD = 40
+LR = 0.01
+WD = 1e-4
 MOMENTUM = 0.9
 NUM_WORKERS = 8
 NUM_CLASSES = 100
 NUM_CLIENTS = 5
 
-KD_ALPHA = 0.5        # CE vs KD 비율 (loss = α*CE + (1-α)*KD)
-KD_TEMPERATURE = 4.0  # softmax temperature
+KD_ALPHA = 0.3        # CE 30% + KD 70% (KD 비중 높여 noise 영향 부각)
+KD_TEMPERATURE = 4.0  # Hinton 2015 표준
+
+# Phase별 batch size (Student 크기 반영)
+BATCH_SIZE_BY_PHASE = {
+    1: 128,  # ResNet-18 Student
+    2: 64,   # ResNet-50 Student
+}
 
 
 # =============================================================================
@@ -127,12 +139,16 @@ def kd_loss(student_logits, teacher_logits, T: float):
 # KD 학습 루프
 # =============================================================================
 def train_student_kd(fused_logits, proxy_loader_aug, val_loader,
-                     epochs, device, seed, tag, use_amp=True,
+                     epochs, device, seed, phase, tag, use_amp=True,
                      log_path=None):
-    """Student를 scratch에서 fused teacher logit으로 KD 학습."""
+    """Student를 pretrained에서 fused teacher logit으로 KD 학습."""
     set_seed(seed * 7919)  # student용 별도 파생 seed
 
-    student = build_resnet18(num_classes=NUM_CLASSES, pretrained=False).to(device)
+    # Student: Phase별 모델 (Phase 1 = ResNet-18, Phase 2 = ResNet-50)
+    # pretrained=True로 ImageNet-1K 가중치에서 시작
+    student = build_model_for_role(
+        role="student", phase=phase,
+        num_classes=NUM_CLASSES, pretrained=True).to(device)
     optimizer = torch.optim.SGD(
         student.parameters(), lr=LR, momentum=MOMENTUM,
         weight_decay=WD, nesterov=True)
@@ -222,31 +238,32 @@ def train_student_kd(fused_logits, proxy_loader_aug, val_loader,
 # =============================================================================
 # 메인
 # =============================================================================
-def run_kd(alpha: float, seed: int, weighting: str,
+def run_kd(alpha: float, seed: int, weighting: str, phase: int,
            use_amp: bool = True, force: bool = False):
-    out_dir = kd_dir(alpha, seed, weighting)
+    out_dir = kd_dir(alpha, seed, weighting, phase=phase)
     out_dir.mkdir(parents=True, exist_ok=True)
     ckpt_path = out_dir / "student_best.pt"
     metrics_path = out_dir / "metrics.json"
 
     if metrics_path.exists() and not force:
-        print(f"[α={alpha}, s={seed}, w={weighting}] SKIP — 이미 존재")
+        print(f"[phase{phase} α={alpha}, s={seed}, w={weighting}] SKIP — 이미 존재")
         return
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    BATCH_SIZE = BATCH_SIZE_BY_PHASE[phase]
 
     # =====================================
-    # 파티션 / Teacher / Expertise 로드
+    # 파티션 / Teacher / Expertise 로드 (phase별 디렉토리)
     # =====================================
     p_path = partition_path(alpha, seed)
-    t_dir = teachers_dir(alpha, seed)
+    t_dir = teachers_dir(alpha, seed, phase=phase)
 
     if not p_path.exists():
         raise FileNotFoundError(f"파티션 없음: {p_path}")
     if not (t_dir / "teacher_logits.pt").exists():
         raise FileNotFoundError(
             f"Teacher logit 없음: {t_dir}/teacher_logits.pt. "
-            f"먼저 train_teachers.py를 실행하세요."
+            f"먼저 train_teachers.py --phase {phase}를 실행하세요."
         )
 
     data = np.load(p_path)
@@ -263,7 +280,7 @@ def run_kd(alpha: float, seed: int, weighting: str,
     # =====================================
     # 가중치 산출 + logit fusion
     # =====================================
-    print(f"\n===== α={alpha}, seed={seed}, weighting={weighting} =====")
+    print(f"\n===== phase{phase} α={alpha}, seed={seed}, weighting={weighting} =====")
     weights = compute_class_weights(f1_mat, weighting)
     fused = fuse_logits(teacher_logits, weights)
     print(f"  Fused logit shape: {tuple(fused.shape)}")
@@ -294,33 +311,37 @@ def run_kd(alpha: float, seed: int, weighting: str,
     # =====================================
     # KD 학습
     # =====================================
-    tag = f"kd_a{alpha}_s{seed}_{weighting}"
-    log_path = logs_dir() / f"{tag}.log"
+    tag = f"p{phase}_kd_a{alpha}_s{seed}_{weighting}"
+    log_path = logs_dir(phase=phase) / f"{tag}.log"
 
     best_state, best_acc, best_epoch, history, tsum = train_student_kd(
         fused, proxy_loader_aug, val_loader, EPOCHS_KD, device,
-        seed, tag, use_amp=use_amp, log_path=log_path)
+        seed, phase, tag, use_amp=use_amp, log_path=log_path)
 
     # best state 저장
     torch.save({
         "student_state": best_state,
         "best_epoch": best_epoch,
         "best_acc": best_acc,
+        "phase": phase,
         "alpha": alpha, "seed": seed, "weighting": weighting,
     }, ckpt_path)
 
     # =====================================
     # 최종 평가 + Gap Recovery
     # =====================================
-    student = build_resnet18(num_classes=NUM_CLASSES, pretrained=False).to(device)
+    # state를 load하므로 pretrained=False로 빠르게 초기화
+    student = build_model_for_role(
+        role="student", phase=phase,
+        num_classes=NUM_CLASSES, pretrained=False).to(device)
     student.load_state_dict({k: v.to(device) for k, v in best_state.items()})
     final = evaluate(student, val_loader, device, NUM_CLASSES)
 
-    # Lower/Upper Bound 로드 (있으면)
+    # Lower/Upper Bound 로드 (phase별)
     gap_recovery = None
     lower_acc, upper_acc = None, None
-    lower_p = bounds_dir(seed) / "lower_metrics.json"
-    upper_p = bounds_dir(seed) / "upper_metrics.json"
+    lower_p = bounds_dir(seed, phase=phase) / "lower_metrics.json"
+    upper_p = bounds_dir(seed, phase=phase) / "upper_metrics.json"
     if lower_p.exists() and upper_p.exists():
         with open(lower_p) as f:
             lower_acc = json.load(f)["final_accuracy"]
@@ -338,6 +359,7 @@ def run_kd(alpha: float, seed: int, weighting: str,
     # 결과 저장
     # =====================================
     result = {
+        "phase": phase,
         "alpha": alpha, "seed": seed, "weighting": weighting,
         "best_epoch": best_epoch,
         "best_val_acc": best_acc,
@@ -356,7 +378,7 @@ def run_kd(alpha: float, seed: int, weighting: str,
     }
     save_json(result, metrics_path)
 
-    print(f"\n===== DONE =====")
+    print(f"\n===== phase{phase} DONE =====")
     print(f"  Final acc    : {final['accuracy']:.4f}")
     print(f"  Best epoch   : {best_epoch}")
     if gap_recovery is not None:
@@ -366,6 +388,9 @@ def run_kd(alpha: float, seed: int, weighting: str,
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--phase", type=int, choices=[1, 2], required=True,
+                        help="1: 동일 모델 ResNet-18 (주장 A 메인), "
+                             "2: small→large MobileNetV2→ResNet-50 (주장 B 보조)")
     parser.add_argument("--alpha", type=float, required=True)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--weighting", choices=["uniform", "top_1", "top_3"],
@@ -374,8 +399,8 @@ def main():
     parser.add_argument("--no-amp", action="store_true")
     args = parser.parse_args()
 
-    ensure_dirs()
-    run_kd(args.alpha, args.seed, args.weighting,
+    ensure_dirs(phase=args.phase)
+    run_kd(args.alpha, args.seed, args.weighting, phase=args.phase,
            use_amp=not args.no_amp, force=args.force)
 
 
