@@ -115,9 +115,17 @@ def run_teachers(alpha: float, seed: int, use_amp: bool = True,
     expertise_path = out_dir / "expertise.npz"
     meta_path = out_dir / "metadata.json"
 
-    if teachers_path.exists() and logits_path.exists() and not force:
-        print(f"[α={alpha}, seed={seed}] SKIP — 이미 존재")
+    # 완료 판정: metadata.json 존재 (= 전체 파이프라인 끝)
+    # teachers.pt는 중간에 죽은 경우에도 존재할 수 있음 (Teacher 1명 완료 시마다 저장)
+    if meta_path.exists() and not force:
+        print(f"[α={alpha}, seed={seed}] SKIP — 완료된 결과 존재: {meta_path}")
         return
+
+    # 중간 파일만 있는 경우 경고 출력
+    if (teachers_path.exists() or logits_path.exists()) and not force:
+        print(f"[α={alpha}, seed={seed}] WARN — 중간 파일 존재하지만 "
+              f"metadata.json 없음. 이전 실행이 미완료. 재학습 시작.",
+              flush=True)
 
     # =====================================
     # 파티션 로드
