@@ -35,6 +35,11 @@ NUM_CLASSES = 100
 NUM_CLIENTS = 5
 PROXY_PER_CLASS = 100
 
+# Proxy는 모든 실험에서 동일해야 함 (α, seed 무관).
+# Lower Bound의 기준선 일관성, KD 재현성, Expertise 측정 일관성을 위함.
+# 이 값은 고정이며 변경 시 모든 실험을 다시 돌려야 함.
+PROXY_SEED = 20260101
+
 
 # =============================================================================
 # 단일 파티션 생성
@@ -42,7 +47,11 @@ PROXY_PER_CLASS = 100
 def build_partition(alpha: float, seed: int, dataset,
                     num_classes=NUM_CLASSES, num_clients=NUM_CLIENTS,
                     proxy_per_class=PROXY_PER_CLASS, force=False):
-    """단일 (α, seed) 파티션 생성."""
+    """단일 (α, seed) 파티션 생성.
+
+    중요: Proxy 추출은 고정 PROXY_SEED를 사용 — α, seed와 무관하게 동일.
+    Dirichlet 파티션만 seed를 사용 — seed가 다르면 Teacher별 분배가 달라짐.
+    """
     out_path = partition_path(alpha, seed)
     if out_path.exists() and not force:
         print(f"  SKIP (exists): {out_path}")
@@ -51,13 +60,14 @@ def build_partition(alpha: float, seed: int, dataset,
     labels = np.array(dataset.targets)
     N = len(labels)
 
-    rng = np.random.RandomState(seed)
+    # Proxy 추출용 rng (고정 PROXY_SEED) — 모든 (α, seed) 조합에서 동일한 proxy 보장
+    proxy_rng = np.random.RandomState(PROXY_SEED)
 
-    # 1) proxy 인덱스 추출 — 클래스별 균등
+    # 1) proxy 인덱스 추출 — 클래스별 균등, 고정 seed 사용
     proxy_indices = []
     for c in range(num_classes):
         idx_c = np.where(labels == c)[0]
-        rng.shuffle(idx_c)
+        proxy_rng.shuffle(idx_c)
         proxy_indices.extend(idx_c[:proxy_per_class].tolist())
     proxy_indices = np.array(sorted(proxy_indices))
     proxy_set = set(proxy_indices.tolist())
@@ -66,7 +76,7 @@ def build_partition(alpha: float, seed: int, dataset,
     private_indices = np.array([i for i in range(N) if i not in proxy_set])
     private_labels = labels[private_indices]
 
-    # 3) Dirichlet 파티션 (private_indices 내 local index 기준)
+    # 3) Dirichlet 파티션 (seed 사용) — 여기서부터는 seed에 따라 달라짐
     partition_local = dirichlet_partition(
         private_labels, num_clients, alpha, num_classes, seed)
 
@@ -77,8 +87,12 @@ def build_partition(alpha: float, seed: int, dataset,
     }
 
     # 4) 통계 출력
+    # proxy_checksum: 이 값이 모든 (α, seed) 파티션에서 동일해야 proxy가 공유된 것
+    proxy_checksum = int(np.sum(proxy_indices) + len(proxy_indices) * 1000003)
+
     print(f"\n=== α={alpha}, seed={seed} ===")
-    print(f"  Proxy:   {len(proxy_indices):>6,} ({proxy_per_class}/class)")
+    print(f"  Proxy:   {len(proxy_indices):>6,} ({proxy_per_class}/class)  "
+          f"checksum={proxy_checksum}")
     print(f"  Private: {len(private_indices):>6,}")
     for k in range(num_clients):
         cl = labels[client_indices[k]]
@@ -95,6 +109,8 @@ def build_partition(alpha: float, seed: int, dataset,
         "private_indices": private_indices,
         "alpha": np.array([alpha]),
         "seed": np.array([seed]),
+        "proxy_seed": np.array([PROXY_SEED]),   # 고정 proxy seed 기록
+        "proxy_checksum": np.array([proxy_checksum]),
         "num_clients": np.array([num_clients]),
         "num_classes": np.array([num_classes]),
         "proxy_per_class": np.array([proxy_per_class]),
@@ -141,6 +157,31 @@ def main():
 
     for alpha, seed in combos:
         build_partition(alpha, seed, dataset, force=args.force)
+
+    # =====================================
+    # Proxy 일관성 검증
+    # 모든 파티션의 proxy_checksum이 동일해야 proxy가 공유된 것
+    # =====================================
+    print("\n=== Proxy 일관성 검증 ===")
+    checksums = {}
+    all_existing_combos = [(a, s) for a in ALPHAS for s in SEEDS
+                           if partition_path(a, s).exists()]
+    for alpha, seed in all_existing_combos:
+        data = np.load(partition_path(alpha, seed))
+        cs = int(data["proxy_checksum"][0]) if "proxy_checksum" in data else None
+        checksums[(alpha, seed)] = cs
+        print(f"  α={alpha}, seed={seed}: checksum={cs}")
+
+    unique_cs = set(v for v in checksums.values() if v is not None)
+    if len(unique_cs) == 1:
+        print(f"\n  ✓ 모든 파티션이 동일한 proxy 사용 (checksum={unique_cs.pop()})")
+    elif len(unique_cs) == 0:
+        print("\n  [WARN] checksum 정보 없음 — 이전 버전 파티션일 가능성")
+    else:
+        print(f"\n  ✗ WARNING: 서로 다른 proxy가 사용됨!")
+        print(f"    unique checksums: {unique_cs}")
+        print(f"    → --force로 모든 파티션을 재생성해야 합니다:")
+        print(f"       python prepare_partition.py --all --force")
 
     print("\n=== Partition 생성 완료 ===")
 
