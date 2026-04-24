@@ -22,7 +22,7 @@ import numpy as np
 from common import (
     RESULTS_ROOT, DATA_ROOT, ensure_dirs,
     partition_path, set_seed,
-    ImageNet100Dataset, dirichlet_partition,
+    ParquetImageDataset, load_parquet_table, dirichlet_partition,
 )
 
 
@@ -124,11 +124,13 @@ def main():
 
     ensure_dirs()
 
-    # 데이터셋 로드 (transform 불필요, targets만 사용)
-    print(f"Loading ImageNet-100 from {DATA_ROOT} ...")
-    dataset = ImageNet100Dataset(split="train", transform=None)
+    # 데이터셋 로드 — labels만 필요하므로 transform 불필요
+    # 단, parquet 로딩 자체는 느리므로 한 번만 하고 재사용
+    print(f"Loading ImageNet-100 train parquet from {DATA_ROOT} ...")
+    table = load_parquet_table("train")
+    dataset = ParquetImageDataset(transform=None, shared_table=table)
     print(f"  Total train samples: {len(dataset):,}")
-    print(f"  Classes: {len(dataset.classes)}")
+    print(f"  Unique labels: {len(set(dataset.labels))}")
 
     if args.all:
         combos = [(a, s) for a in ALPHAS for s in SEEDS]

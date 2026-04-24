@@ -30,7 +30,7 @@ from common import (
     DATA_ROOT, ensure_dirs,
     partition_path, bounds_dir, logs_dir,
     set_seed, EpochTimer,
-    ImageNet100Dataset, get_transforms,
+    ParquetImageDataset, load_parquet_table, get_transforms,
     build_resnet18, train_one_epoch, evaluate,
     save_json,
 )
@@ -66,10 +66,15 @@ def train_bound(mode: str, seed: int, use_amp: bool = True):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # =====================================
-    # 데이터 준비
+    # 데이터 준비 (Parquet 기반)
     # =====================================
-    train_ds_full = ImageNet100Dataset("train", transform=get_transforms(True))
-    val_ds = ImageNet100Dataset("val", transform=get_transforms(False))
+    # train parquet은 한 번만 읽고 두 dataset이 공유 (Lower는 train→subset, Upper는 train 전체)
+    train_table = load_parquet_table("train")
+    train_ds_full = ParquetImageDataset(
+        transform=get_transforms(True), shared_table=train_table)
+    val_ds = ParquetImageDataset(
+        parquet_path=None, transform=get_transforms(False),
+        shared_table=load_parquet_table("val"))
 
     if mode == "lower":
         # proxy만 사용 — 파티션은 seed만 따라감 (α 무관)

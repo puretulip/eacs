@@ -41,7 +41,7 @@ import torch
 from common import (
     RESULTS_ROOT, ensure_dirs,
     partition_path, teachers_dir, kd_dir, bounds_dir,
-    ImageNet100Dataset,
+    ParquetImageDataset, load_parquet_table,
 )
 
 
@@ -128,8 +128,13 @@ def fig1_partition_visualization(seed=42):
     print("\n[Figure 1] 파티션 시각화 생성 중...")
 
     # 라벨 로드 (targets는 한 번만 읽으면 됨)
-    ds = ImageNet100Dataset("train", transform=None)
-    labels_all = np.array(ds.targets)
+    # parquet에서 label 컬럼만 추출 — 이미지 바이트는 건드리지 않아 빠름
+    import pyarrow.parquet as pq
+    from common import TRAIN_PARQUET
+    labels_all = np.array(
+        pq.read_table(str(TRAIN_PARQUET), columns=["label"])
+          .column("label").to_pylist()
+    )
 
     # --- Fig 1a: α별 client-class 히트맵 ---
     fig, axes = plt.subplots(1, len(ALPHAS), figsize=(4 * len(ALPHAS), 4.5),

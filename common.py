@@ -3,8 +3,8 @@ common.py — 공통 유틸리티 모듈
 =====================================
 
 모든 스크립트가 공유하는 구성 요소:
-  - 디렉토리 경로 규약
-  - 데이터셋 로딩 (ImageNet-100)
+  - 디렉토리 경로 규약 (EACS_RESULTS_ROOT, EACS_DATA_ROOT)
+  - ParquetImageDataset (HuggingFace ImageNet-100 parquet 포맷)
   - 모델 생성 (ResNet-18 scratch)
   - Dirichlet 파티션
   - 평가 지표 계산
@@ -13,6 +13,7 @@ common.py — 공통 유틸리티 모듈
 """
 
 import os
+import io
 import json
 import time
 import random
@@ -24,9 +25,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader, Subset
-import torchvision
 import torchvision.transforms as T
 import torchvision.models as tvm
+from PIL import Image
 
 
 # =============================================================================
@@ -37,10 +38,15 @@ RESULTS_ROOT = Path(os.environ.get(
     "EACS_RESULTS_ROOT",
     os.path.expanduser("~/eacs_results")
 ))
+# DATA_ROOT 아래에 train.parquet, validation.parquet, class_mapping.txt 존재.
+# 기존 HuggingFace ImageNet-100 구조 (eacs_kd_multi_teacher.py와 동일).
 DATA_ROOT = Path(os.environ.get(
     "EACS_DATA_ROOT",
     os.path.expanduser("~/data/imagenet100")
 ))
+TRAIN_PARQUET = DATA_ROOT / "train.parquet"
+VAL_PARQUET = DATA_ROOT / "validation.parquet"
+CLASS_MAPPING = DATA_ROOT / "class_mapping.txt"
 
 
 def partition_path(alpha, seed):
@@ -166,31 +172,96 @@ def get_transforms(train: bool, img_size: int = 224):
         ])
 
 
-class ImageNet100Dataset(Dataset):
-    """ImageNet-100 데이터셋 래퍼.
+class ParquetImageDataset(Dataset):
+    """Parquet 기반 ImageNet-100 데이터셋.
 
-    DATA_ROOT 아래에 train/, val/ 폴더가 100개 클래스 하위폴더로 정리되어 있다고 가정.
+    Parquet에는 두 컬럼이 있다고 가정:
+      - 'image': bytes (또는 {'bytes': ...} dict) — JPEG/PNG encoded
+      - 'label': int — 클래스 인덱스 (0..99)
+
+    HuggingFace datasets로 to_parquet 된 파일 포맷을 지원.
+    기존 eacs_kd_multi_teacher.py의 ParquetImageDataset과 동일 동작.
     """
-    def __init__(self, split: str, transform=None):
-        assert split in ("train", "val")
-        self.root = DATA_ROOT / split
+    def __init__(self, parquet_path=None, transform=None, shared_table=None):
+        """shared_table이 주어지면 이미 로드된 pyarrow.Table을 재사용.
+
+        같은 parquet을 train/noaug 두 dataset으로 쓸 때 메모리 절약 가능.
+        """
+        import pyarrow.parquet as pq
+        if shared_table is not None:
+            self.table = shared_table
+        else:
+            if parquet_path is None:
+                raise ValueError("parquet_path 또는 shared_table이 필요합니다")
+            print(f"  Loading parquet: {parquet_path}")
+            self.table = pq.read_table(str(parquet_path))
+        # 라벨은 한 번에 파이썬 리스트로 — targets 호환을 위해
+        self.labels = self.table.column("label").to_pylist()
+        # image 컬럼은 lazy access (메모리 절약)
+        self.image_col = self.table.column("image")
         self.transform = transform
-        self.base = torchvision.datasets.ImageFolder(str(self.root))
-        self.samples = self.base.samples
-        self.classes = self.base.classes
-        self.class_to_idx = self.base.class_to_idx
-        self.targets = [s[1] for s in self.samples]
 
     def __len__(self):
-        return len(self.samples)
+        return len(self.labels)
 
     def __getitem__(self, idx):
-        path, label = self.samples[idx]
-        from PIL import Image
-        img = Image.open(path).convert("RGB")
-        if self.transform:
-            img = self.transform(img)
-        return img, label
+        img_data = self.image_col[idx].as_py()
+        # HuggingFace format: {'bytes': ..., 'path': ...} 또는 raw bytes
+        if isinstance(img_data, dict):
+            img_bytes = img_data["bytes"]
+        else:
+            img_bytes = img_data
+        image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        if self.transform is not None:
+            image = self.transform(image)
+        return image, self.labels[idx]
+
+    @property
+    def targets(self):
+        """torchvision 호환 — dirichlet_partition 등에서 사용."""
+        return self.labels
+
+
+def load_parquet_table(split: str):
+    """split 'train' 또는 'val' 해당 parquet 테이블을 로드.
+    반환된 테이블은 여러 Dataset 객체에서 shared_table로 공유 가능.
+    """
+    import pyarrow.parquet as pq
+    if split == "train":
+        path = TRAIN_PARQUET
+    elif split in ("val", "validation"):
+        path = VAL_PARQUET
+    else:
+        raise ValueError(f"Unknown split: {split}")
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Parquet 파일 없음: {path}\n"
+            f"EACS_DATA_ROOT 환경변수 확인 (현재: {DATA_ROOT})\n"
+            f"기대 구조: $EACS_DATA_ROOT/{{train,validation}}.parquet"
+        )
+    print(f"  Loading parquet: {path}")
+    return pq.read_table(str(path))
+
+
+def load_class_mapping():
+    """class_mapping.txt를 딕셔너리로 반환 (없어도 에러 아님, None 반환)."""
+    if not CLASS_MAPPING.exists():
+        return None
+    mapping = {}
+    with open(CLASS_MAPPING) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            # "0 n01440764 tench" 또는 "n01440764 tench" 형식 모두 허용
+            parts = line.split(maxsplit=2)
+            if len(parts) >= 2:
+                try:
+                    idx = int(parts[0])
+                    mapping[idx] = " ".join(parts[1:])
+                except ValueError:
+                    mapping[len(mapping)] = line
+    return mapping
 
 
 class IndexedSubset(Dataset):

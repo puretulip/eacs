@@ -34,7 +34,7 @@ from common import (
     ensure_dirs,
     partition_path, teachers_dir, logs_dir,
     set_seed, EpochTimer,
-    ImageNet100Dataset, get_transforms,
+    ParquetImageDataset, load_parquet_table, get_transforms,
     build_resnet18, train_one_epoch, evaluate,
     collect_logits, logit_quality_metrics,
     save_json,
@@ -138,16 +138,23 @@ def run_teachers(alpha: float, seed: int, use_amp: bool = True,
         print(f"  Client {k}: {len(client_indices[k]):,}장")
 
     # =====================================
-    # 데이터셋 / DataLoaders
+    # 데이터셋 / DataLoaders (Parquet shared_table 패턴)
     # =====================================
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    train_ds_full = ImageNet100Dataset("train", transform=get_transforms(True))
-    val_ds = ImageNet100Dataset("val", transform=get_transforms(False))
+
+    # train parquet은 한 번만 읽고 aug/noaug 두 dataset이 공유
+    train_table = load_parquet_table("train")
+    train_ds_full = ParquetImageDataset(
+        transform=get_transforms(True), shared_table=train_table)
+    train_ds_noaug = ParquetImageDataset(
+        transform=get_transforms(False), shared_table=train_table)
+
+    val_ds = ParquetImageDataset(
+        transform=get_transforms(False), shared_table=load_parquet_table("val"))
     val_loader = DataLoader(val_ds, batch_size=256, shuffle=False,
                             num_workers=NUM_WORKERS, pin_memory=True)
 
     # proxy (no-aug) loader — logit 수집용
-    train_ds_noaug = ImageNet100Dataset("train", transform=get_transforms(False))
     proxy_subset = Subset(train_ds_noaug, proxy_indices.tolist())
     proxy_loader_noaug = DataLoader(
         proxy_subset, batch_size=256, shuffle=False,

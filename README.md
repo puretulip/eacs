@@ -32,13 +32,26 @@ run_distributed_example.sh     EC2 여러 대 분산 실행 템플릿
 
 ```bash
 # 필요 패키지
-pip install torch torchvision numpy pandas matplotlib seaborn pillow
+pip install torch torchvision numpy pandas matplotlib seaborn pillow pyarrow
 
 # 환경변수 설정
-export EACS_RESULTS_ROOT=/mnt/efs/eacs_results    # EFS 공유 경로
-export EACS_DATA_ROOT=/mnt/efs/data/imagenet100   # ImageNet-100
-export TMPDIR=/tmp                                # 로컬 NVMe (성능)
+export EACS_RESULTS_ROOT=/mnt/efs/eacs_results    # 결과 저장 (EFS 공유 경로)
+export EACS_DATA_ROOT=/mnt/efs/data/imagenet100   # ImageNet-100 parquet 경로
+export TMPDIR=/tmp                                # 로컬 NVMe (PIL 임시파일)
 ```
+
+**데이터 디렉토리 구조**:
+
+```
+$EACS_DATA_ROOT/
+├── train.parquet           # HuggingFace ImageNet-100 train
+├── validation.parquet      # HuggingFace ImageNet-100 validation
+└── class_mapping.txt       # (선택) 클래스 인덱스 → 이름 매핑
+```
+
+Parquet 포맷 (HuggingFace `datasets` 표준):
+- `image` 컬럼: JPEG/PNG bytes (또는 `{'bytes': ..., 'path': ...}` dict)
+- `label` 컬럼: int (0..99)
 
 ### 1. 파티션 생성 (한 번만, 매우 빠름)
 

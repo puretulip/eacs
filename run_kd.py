@@ -33,7 +33,7 @@ from common import (
     ensure_dirs,
     partition_path, teachers_dir, kd_dir, bounds_dir, logs_dir,
     set_seed, EpochTimer,
-    ImageNet100Dataset, get_transforms, IndexedSubset,
+    ParquetImageDataset, load_parquet_table, get_transforms, IndexedSubset,
     build_resnet18, evaluate,
     save_json,
 )
@@ -277,9 +277,12 @@ def run_kd(alpha: float, seed: int, weighting: str,
 
     # =====================================
     # Proxy DataLoader (augmented, shuffle=True, IndexedSubset)
+    # Parquet 기반: train은 한 번만 로드
     # =====================================
-    train_ds_aug = ImageNet100Dataset("train", transform=get_transforms(True))
-    val_ds = ImageNet100Dataset("val", transform=get_transforms(False))
+    train_ds_aug = ParquetImageDataset(
+        transform=get_transforms(True), shared_table=load_parquet_table("train"))
+    val_ds = ParquetImageDataset(
+        transform=get_transforms(False), shared_table=load_parquet_table("val"))
 
     indexed = IndexedSubset(train_ds_aug, proxy_indices)
     proxy_loader_aug = DataLoader(
