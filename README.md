@@ -18,7 +18,7 @@
 - **Small→Large 구성**: Teacher = MobileNetV2 pretrained, Student = Lower = Upper = **ResNet-50 pretrained**
 - 엣지(작은 모델) → 서버(큰 모델) 지식 전달 시나리오
 - **Gap Recovery가 음수로 떨어지는지**가 핵심 증거
-- α 3점: {0.1, 1.0, 100.0} (Phase 2는 축소)
+- α 5점: {0.1, 0.5, 1.0, 10.0, 100.0} (Phase 1과 동일)
 
 ## 공통 설정
 
@@ -153,18 +153,18 @@ python train_bounds.py --phase 2 --seed 42 --mode both
 python train_bounds.py --phase 2 --seed 123 --mode both
 ```
 
-**Teacher 학습** (α 3점 × seed 2개 = 6조합):
+**Teacher 학습** (5α × seed 2개 = 10조합):
 ```bash
-for alpha in 0.1 1.0 100.0; do
+for alpha in 0.1 0.5 1.0 10.0 100.0; do
   for seed in 42 123; do
     python train_teachers.py --phase 2 --alpha $alpha --seed $seed
   done
 done
 ```
 
-**KD 학습** (18조합):
+**KD 학습** (30조합):
 ```bash
-for alpha in 0.1 1.0 100.0; do
+for alpha in 0.1 0.5 1.0 10.0 100.0; do
   for seed in 42 123; do
     for w in uniform top_1 top_3; do
       python run_kd.py --phase 2 --alpha $alpha --seed $seed --weighting $w
