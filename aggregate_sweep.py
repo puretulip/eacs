@@ -485,7 +485,7 @@ def fig4_student_results(df: pd.DataFrame, bounds_map: dict, phase: int):
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
     ax1.legend(lines1 + lines2, labels1 + labels2,
-               loc="lower left", fontsize=9, framealpha=0.95)
+               loc="lower right", fontsize=9, framealpha=0.95)
 
     plt.title(f"Figure 4a — Teacher expertise (left) vs Student accuracy (right), "
               f"phase{phase}\n"
