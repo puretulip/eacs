@@ -52,7 +52,7 @@ NUM_CLIENTS = 5
 NUM_CLASSES = 100
 
 # Phase 2는 α 3점만 (주장 B 보조이므로 축소)
-ALPHAS_PHASE2 = [0.1, 1.0, 100.0]
+ALPHAS_PHASE2 = [0.1, 0.5, 1.0, 10.0, 100.0]
 
 # 색상 팔레트
 WEIGHT_COLORS = {
