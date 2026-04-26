@@ -1,0 +1,32 @@
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 0, "elapsed_sec": 54.54423379898071}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 1, "elapsed_sec": 30.93327784538269}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 2, "elapsed_sec": 30.76981496810913}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 3, "elapsed_sec": 30.225184202194214}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 4, "elapsed_sec": 26.52652382850647}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 5, "elapsed_sec": 26.584213495254517}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 6, "elapsed_sec": 26.658519744873047}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 7, "elapsed_sec": 26.714117765426636}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 8, "elapsed_sec": 26.899540185928345}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 9, "elapsed_sec": 26.91627836227417}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 10, "elapsed_sec": 26.901307582855225}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 11, "elapsed_sec": 26.63120722770691}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 12, "elapsed_sec": 26.78154492378235}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 13, "elapsed_sec": 26.622112035751343}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 14, "elapsed_sec": 26.914472341537476}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 15, "elapsed_sec": 26.763487100601196}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 16, "elapsed_sec": 26.562209844589233}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 17, "elapsed_sec": 26.793136835098267}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 18, "elapsed_sec": 26.651826858520508}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 19, "elapsed_sec": 27.09799861907959}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 20, "elapsed_sec": 26.918623208999634}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 21, "elapsed_sec": 26.778907299041748}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 22, "elapsed_sec": 26.789255380630493}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 23, "elapsed_sec": 26.760834217071533}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 24, "elapsed_sec": 26.641114234924316}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 25, "elapsed_sec": 26.82341480255127}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 26, "elapsed_sec": 26.81638526916504}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 27, "elapsed_sec": 26.750404119491577}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 28, "elapsed_sec": 26.483672380447388}
+{"tag": "p2_teacher_k0_a10.0_s123", "epoch": 29, "elapsed_sec": 26.86838126182556}
+{"SUMMARY": {"tag": "p2_teacher_k0_a10.0_s123", "n_epochs": 30, "total_sec": 842.1219997406006, "mean_sec": 28.070733324686685, "min_sec": 26.483672380447388, "max_sec": 54.54423379898071}}
+{"SUMMARY": {"tag": "p2_teacher_k0_a10.0_s123", "n_epochs": 30, "total_sec": 842.1219997406006, "mean_sec": 28.070733324686685, "min_sec": 26.483672380447388, "max_sec": 54.54423379898071}}

@@ -1,0 +1,139 @@
+/opt/pytorch/lib64/python3.13/site-packages/torch/cuda/__init__.py:65: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+/home/ssm-user/efs/eacs/train_bounds.py:122: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.
+  scaler = torch.cuda.amp.GradScaler() if use_amp else None
+  Loading parquet: /home/ssm-user/efs/workspace/extract_imagenet_100/data/imagenet100/train.parquet
+  Loading parquet: /home/ssm-user/efs/workspace/extract_imagenet_100/data/imagenet100/validation.parquet
+[lower] proxy samples: 10,000
+/home/ssm-user/efs/eacs/common.py:364: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast():
+[lower_seed123] epoch   0 |    25.0s
+  [lower] epoch   0 | train_acc=0.0351 | val_acc=0.0360 | macro_f1=0.0177
+[lower_seed123] epoch   1 |    15.1s
+[lower_seed123] epoch   2 |    15.3s
+[lower_seed123] epoch   3 |    15.6s
+[lower_seed123] epoch   4 |    13.7s
+[lower_seed123] epoch   5 |    13.2s
+  [lower] epoch   5 | train_acc=0.1290 | val_acc=0.1324 | macro_f1=0.1015
+[lower_seed123] epoch   6 |    13.2s
+[lower_seed123] epoch   7 |    13.2s
+[lower_seed123] epoch   8 |    13.1s
+[lower_seed123] epoch   9 |    13.1s
+[lower_seed123] epoch  10 |    13.3s
+  [lower] epoch  10 | train_acc=0.2056 | val_acc=0.1764 | macro_f1=0.1534
+[lower_seed123] epoch  11 |    13.3s
+[lower_seed123] epoch  12 |    13.2s
+[lower_seed123] epoch  13 |    13.2s
+[lower_seed123] epoch  14 |    13.3s
+[lower_seed123] epoch  15 |    13.2s
+  [lower] epoch  15 | train_acc=0.2820 | val_acc=0.2510 | macro_f1=0.2338
+[lower_seed123] epoch  16 |    13.1s
+[lower_seed123] epoch  17 |    13.2s
+[lower_seed123] epoch  18 |    13.1s
+[lower_seed123] epoch  19 |    13.3s
+[lower_seed123] epoch  20 |    13.1s
+  [lower] epoch  20 | train_acc=0.3426 | val_acc=0.2336 | macro_f1=0.2161
+[lower_seed123] epoch  21 |    13.0s
+[lower_seed123] epoch  22 |    13.2s
+[lower_seed123] epoch  23 |    13.3s
+[lower_seed123] epoch  24 |    13.1s
+[lower_seed123] epoch  25 |    13.1s
+  [lower] epoch  25 | train_acc=0.4030 | val_acc=0.3146 | macro_f1=0.2946
+[lower_seed123] epoch  26 |    13.3s
+[lower_seed123] epoch  27 |    13.3s
+[lower_seed123] epoch  28 |    13.3s
+[lower_seed123] epoch  29 |    13.2s
+[lower_seed123] epoch  30 |    13.1s
+  [lower] epoch  30 | train_acc=0.4648 | val_acc=0.3772 | macro_f1=0.3622
+[lower_seed123] epoch  31 |    13.3s
+[lower_seed123] epoch  32 |    13.3s
+[lower_seed123] epoch  33 |    13.3s
+[lower_seed123] epoch  34 |    13.2s
+[lower_seed123] epoch  35 |    13.3s
+  [lower] epoch  35 | train_acc=0.5096 | val_acc=0.3712 | macro_f1=0.3606
+[lower_seed123] epoch  36 |    13.2s
+[lower_seed123] epoch  37 |    13.2s
+[lower_seed123] epoch  38 |    13.1s
+[lower_seed123] epoch  39 |    13.1s
+[lower_seed123] epoch  40 |    13.4s
+  [lower] epoch  40 | train_acc=0.5704 | val_acc=0.3846 | macro_f1=0.3772
+[lower_seed123] epoch  41 |    13.3s
+[lower_seed123] epoch  42 |    13.2s
+[lower_seed123] epoch  43 |    13.2s
+[lower_seed123] epoch  44 |    13.2s
+[lower_seed123] epoch  45 |    13.3s
+  [lower] epoch  45 | train_acc=0.6072 | val_acc=0.3980 | macro_f1=0.3919
+[lower_seed123] epoch  46 |    13.4s
+[lower_seed123] epoch  47 |    13.1s
+[lower_seed123] epoch  48 |    13.2s
+[lower_seed123] epoch  49 |    13.2s
+[lower_seed123] epoch  50 |    13.3s
+  [lower] epoch  50 | train_acc=0.6692 | val_acc=0.4308 | macro_f1=0.4288
+[lower_seed123] epoch  51 |    13.2s
+[lower_seed123] epoch  52 |    13.1s
+[lower_seed123] epoch  53 |    13.2s
+[lower_seed123] epoch  54 |    13.2s
+[lower_seed123] epoch  55 |    13.2s
+  [lower] epoch  55 | train_acc=0.7311 | val_acc=0.4540 | macro_f1=0.4521
+[lower_seed123] epoch  56 |    13.2s
+[lower_seed123] epoch  57 |    13.1s
+[lower_seed123] epoch  58 |    13.2s
+[lower_seed123] epoch  59 |    13.4s
+[lower_seed123] epoch  60 |    13.2s
+  [lower] epoch  60 | train_acc=0.7570 | val_acc=0.4498 | macro_f1=0.4453
+[lower_seed123] epoch  61 |    13.2s
+[lower_seed123] epoch  62 |    13.4s
+[lower_seed123] epoch  63 |    13.0s
+[lower_seed123] epoch  64 |    13.1s
+[lower_seed123] epoch  65 |    13.2s
+  [lower] epoch  65 | train_acc=0.8100 | val_acc=0.4840 | macro_f1=0.4797
+[lower_seed123] epoch  66 |    13.4s
+[lower_seed123] epoch  67 |    13.1s
+[lower_seed123] epoch  68 |    13.3s
+[lower_seed123] epoch  69 |    13.2s
+[lower_seed123] epoch  70 |    13.4s
+  [lower] epoch  70 | train_acc=0.8444 | val_acc=0.4854 | macro_f1=0.4814
+[lower_seed123] epoch  71 |    13.3s
+[lower_seed123] epoch  72 |    13.2s
+[lower_seed123] epoch  73 |    13.2s
+[lower_seed123] epoch  74 |    13.2s
+[lower_seed123] epoch  75 |    13.1s
+  [lower] epoch  75 | train_acc=0.8832 | val_acc=0.4982 | macro_f1=0.4960
+[lower_seed123] epoch  76 |    13.3s
+[lower_seed123] epoch  77 |    13.4s
+[lower_seed123] epoch  78 |    13.2s
+[lower_seed123] epoch  79 |    13.2s
+[lower_seed123] epoch  80 |    13.2s
+  [lower] epoch  80 | train_acc=0.9002 | val_acc=0.5126 | macro_f1=0.5094
+[lower_seed123] epoch  81 |    13.3s
+[lower_seed123] epoch  82 |    13.2s
+[lower_seed123] epoch  83 |    13.1s
+[lower_seed123] epoch  84 |    13.2s
+[lower_seed123] epoch  85 |    13.2s
+  [lower] epoch  85 | train_acc=0.9113 | val_acc=0.5218 | macro_f1=0.5178
+[lower_seed123] epoch  86 |    13.5s
+[lower_seed123] epoch  87 |    13.4s
+[lower_seed123] epoch  88 |    13.1s
+[lower_seed123] epoch  89 |    13.2s
+[lower_seed123] epoch  90 |    13.1s
+  [lower] epoch  90 | train_acc=0.9307 | val_acc=0.5226 | macro_f1=0.5182
+[lower_seed123] epoch  91 |    13.3s
+  [lower] epoch  91 | train_acc=0.9277 | val_acc=0.5256 | macro_f1=0.5222
+[lower_seed123] epoch  92 |    13.3s
+  [lower] epoch  92 | train_acc=0.9255 | val_acc=0.5244 | macro_f1=0.5211
+[lower_seed123] epoch  93 |    13.1s
+  [lower] epoch  93 | train_acc=0.9296 | val_acc=0.5256 | macro_f1=0.5219
+[lower_seed123] epoch  94 |    13.3s
+  [lower] epoch  94 | train_acc=0.9296 | val_acc=0.5292 | macro_f1=0.5251
+[lower_seed123] epoch  95 |    13.1s
+  [lower] epoch  95 | train_acc=0.9313 | val_acc=0.5276 | macro_f1=0.5242
+[lower_seed123] epoch  96 |    13.2s
+  [lower] epoch  96 | train_acc=0.9335 | val_acc=0.5284 | macro_f1=0.5238
+[lower_seed123] epoch  97 |    13.4s
+  [lower] epoch  97 | train_acc=0.9342 | val_acc=0.5260 | macro_f1=0.5221
+[lower_seed123] epoch  98 |    13.1s
+  [lower] epoch  98 | train_acc=0.9365 | val_acc=0.5268 | macro_f1=0.5219
+[lower_seed123] epoch  99 |    13.3s
+  [lower] epoch  99 | train_acc=0.9307 | val_acc=0.5272 | macro_f1=0.5234
+[lower_seed123] SUMMARY | n=100 total=1341s mean=13.4s (min=13.0, max=25.0)
+[lower_seed123] SUMMARY | n=100 total=1341s mean=13.4s (min=13.0, max=25.0)

@@ -1,0 +1,27 @@
+{"tag": "p1_upper_seed123", "epoch": 0, "elapsed_sec": 151.483051776886}
+{"tag": "p1_upper_seed123", "epoch": 1, "elapsed_sec": 147.77581477165222}
+{"tag": "p1_upper_seed123", "epoch": 2, "elapsed_sec": 137.7579894065857}
+{"tag": "p1_upper_seed123", "epoch": 3, "elapsed_sec": 137.480082988739}
+{"tag": "p1_upper_seed123", "epoch": 4, "elapsed_sec": 137.8466637134552}
+{"tag": "p1_upper_seed123", "epoch": 5, "elapsed_sec": 138.19945335388184}
+{"tag": "p1_upper_seed123", "epoch": 6, "elapsed_sec": 137.60581636428833}
+{"tag": "p1_upper_seed123", "epoch": 7, "elapsed_sec": 137.75448203086853}
+{"tag": "p1_upper_seed123", "epoch": 8, "elapsed_sec": 137.61107301712036}
+{"tag": "p1_upper_seed123", "epoch": 9, "elapsed_sec": 137.8395767211914}
+{"tag": "p1_upper_seed123", "epoch": 10, "elapsed_sec": 138.0166163444519}
+{"tag": "p1_upper_seed123", "epoch": 11, "elapsed_sec": 137.67267847061157}
+{"tag": "p1_upper_seed123", "epoch": 12, "elapsed_sec": 137.63554310798645}
+{"tag": "p1_upper_seed123", "epoch": 13, "elapsed_sec": 137.65600681304932}
+{"tag": "p1_upper_seed123", "epoch": 14, "elapsed_sec": 137.52712321281433}
+{"tag": "p1_upper_seed123", "epoch": 15, "elapsed_sec": 137.66356873512268}
+{"tag": "p1_upper_seed123", "epoch": 16, "elapsed_sec": 137.61624455451965}
+{"tag": "p1_upper_seed123", "epoch": 17, "elapsed_sec": 137.35560274124146}
+{"tag": "p1_upper_seed123", "epoch": 18, "elapsed_sec": 137.61873745918274}
+{"tag": "p1_upper_seed123", "epoch": 19, "elapsed_sec": 137.3081910610199}
+{"tag": "p1_upper_seed123", "epoch": 20, "elapsed_sec": 137.53982305526733}
+{"tag": "p1_upper_seed123", "epoch": 21, "elapsed_sec": 137.41213178634644}
+{"tag": "p1_upper_seed123", "epoch": 22, "elapsed_sec": 137.96309804916382}
+{"tag": "p1_upper_seed123", "epoch": 23, "elapsed_sec": 137.90578031539917}
+{"tag": "p1_upper_seed123", "epoch": 24, "elapsed_sec": 137.7227795124054}
+{"SUMMARY": {"tag": "p1_upper_seed123", "n_epochs": 25, "total_sec": 3465.9679293632507, "mean_sec": 138.63871717453003, "min_sec": 137.3081910610199, "max_sec": 151.483051776886}}
+{"SUMMARY": {"tag": "p1_upper_seed123", "n_epochs": 25, "total_sec": 3465.9679293632507, "mean_sec": 138.63871717453003, "min_sec": 137.3081910610199, "max_sec": 151.483051776886}}
