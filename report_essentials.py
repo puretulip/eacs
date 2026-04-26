@@ -47,7 +47,7 @@ from common import (
 
 
 ALPHAS_PHASE1 = [0.1, 0.5, 1.0, 10.0, 100.0]
-ALPHAS_PHASE2 = [0.1, 1.0, 100.0]
+ALPHAS_PHASE2 = [0.1, 0.5, 1.0, 10.0, 100.0]  # Phase 1과 동일
 SEEDS = [42, 123]
 WEIGHTINGS = ["uniform", "top_1", "top_3"]
 NUM_CLIENTS = 5
