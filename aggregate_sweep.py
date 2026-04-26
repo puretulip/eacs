@@ -413,9 +413,11 @@ def fig4_student_results(df: pd.DataFrame, bounds_map: dict, phase: int):
     upper_mean = np.nanmean([bounds_map[s]["upper"] for s in SEEDS
                              if bounds_map[s]["upper"] is not None])
 
-    # --- Fig 4a: 핵심 역상관 ---
-    # x: α (log), y1: Teacher F1 평균 (전문 클래스), y2: Student Acc (uniform 대표)
-    fig, ax1 = plt.subplots(figsize=(9, 5.5))
+    # --- Fig 4a: Teacher F1 vs Student Acc (모든 weighting) ---
+    # 좌측 y축: Teacher의 전문 클래스 평균 F1 (Teacher의 도메인 내 분류 능력)
+    # 우측 y축: Student global accuracy (Uniform / Top-1 / Top-3 모두 표시)
+    # 핵심 메시지: α↓ → Teacher F1 ↑ (전문성 강해짐) BUT Student Acc는 다양하게 변함
+    fig, ax1 = plt.subplots(figsize=(10, 6))
 
     # Teacher F1: α별 평균 (전문 클래스만, F1>0.5의 평균)
     teacher_f1_means, teacher_f1_stds = [], []
@@ -435,43 +437,61 @@ def fig4_student_results(df: pd.DataFrame, bounds_map: dict, phase: int):
         teacher_f1_stds.append(np.std(vals) if vals else 0)
 
     xs = np.arange(len(alphas))
-    ax1.errorbar(xs, teacher_f1_means, yerr=teacher_f1_stds,
-                 fmt="o-", color="#F59E0B", markersize=10,
-                 linewidth=2.5, capsize=5,
-                 label="Teacher F1 (expert classes)")
+    line_teacher = ax1.errorbar(
+        xs, teacher_f1_means, yerr=teacher_f1_stds,
+        fmt="o-", color="#F59E0B", markersize=10,
+        linewidth=2.5, capsize=5,
+        label="Teacher F1 (expert classes; left axis)")
     ax1.set_xlabel("Dirichlet α")
-    ax1.set_ylabel("Teacher per-class F1 (expert classes only)", color="#F59E0B")
+    ax1.set_ylabel("Teacher per-class F1 (expert classes only)",
+                   color="#F59E0B", fontsize=11)
     ax1.tick_params(axis="y", labelcolor="#F59E0B")
     ax1.set_xticks(xs)
     ax1.set_xticklabels([str(a) for a in alphas])
     ax1.set_ylim(0, 1.0)
     ax1.grid(alpha=0.3)
 
-    # Student Acc (uniform weighting, seed 평균)
+    # Student Acc — 세 weighting 모두 우측 y축에 표시
     ax2 = ax1.twinx()
-    student_means, student_stds = [], []
-    for alpha in alphas:
-        sub = df[(df["alpha"] == alpha) & (df["weighting"] == "uniform")]
-        student_means.append(sub["student_acc"].mean() if len(sub) else np.nan)
-        student_stds.append(sub["student_acc"].std() if len(sub) else 0)
 
-    ax2.errorbar(xs, student_means, yerr=student_stds,
-                 fmt="s-", color="#2563EB", markersize=10,
-                 linewidth=2.5, capsize=5,
-                 label="Student Acc (Uniform KD)")
-    ax2.set_ylabel("Student global accuracy", color="#2563EB")
-    ax2.tick_params(axis="y", labelcolor="#2563EB")
+    # weighting별 marker 구분
+    student_markers = {"uniform": "s", "top_1": "^", "top_3": "D"}
+
+    for w in WEIGHTINGS:
+        means, stds = [], []
+        for alpha in alphas:
+            sub = df[(df["alpha"] == alpha) & (df["weighting"] == w)]
+            means.append(sub["student_acc"].mean() if len(sub) else np.nan)
+            stds.append(sub["student_acc"].std() if len(sub) else 0)
+
+        ax2.errorbar(
+            xs, means, yerr=stds,
+            fmt=f"{student_markers[w]}--", color=WEIGHT_COLORS[w],
+            markersize=9, linewidth=2, capsize=4, alpha=0.85,
+            label=f"Student Acc — {w} (right axis)")
+
+    ax2.set_ylabel("Student global accuracy", color="#1F2937", fontsize=11)
+    ax2.tick_params(axis="y", labelcolor="#1F2937")
 
     # bounds 수평선
-    ax2.axhline(y=lower_mean, color="gray", linestyle="--",
-                alpha=0.6, label=f"Lower Bound ({lower_mean:.3f})")
-    ax2.axhline(y=upper_mean, color="black", linestyle="--",
-                alpha=0.6, label=f"Upper Bound ({upper_mean:.3f})")
+    ax2.axhline(y=lower_mean, color="gray", linestyle=":",
+                alpha=0.7, linewidth=1.5,
+                label=f"Lower Bound ({lower_mean:.3f})")
+    ax2.axhline(y=upper_mean, color="black", linestyle=":",
+                alpha=0.7, linewidth=1.5,
+                label=f"Upper Bound ({upper_mean:.3f})")
 
+    # 통합 legend
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines1 + lines2, labels1 + labels2, loc="center left")
-    plt.title(f"Figure 4a — Teacher F1 vs Student Acc (phase{phase})")
+    ax1.legend(lines1 + lines2, labels1 + labels2,
+               loc="lower left", fontsize=9, framealpha=0.95)
+
+    plt.title(f"Figure 4a — Teacher expertise (left) vs Student accuracy (right), "
+              f"phase{phase}\n"
+              f"left axis: Teacher's per-class F1 in expert classes  |  "
+              f"right axis: Student global accuracy by weighting",
+              fontsize=10)
     plt.tight_layout()
     plt.savefig(FIG_DIR / "fig4a_main_inverse_correlation.png", dpi=150)
     plt.close()
