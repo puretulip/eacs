@@ -51,8 +51,8 @@ WEIGHTINGS = ["uniform", "top_1", "top_3"]
 NUM_CLIENTS = 5
 NUM_CLASSES = 100
 
-# Phase 2는 α 3점만 (주장 B 보조이므로 축소)
-ALPHAS_PHASE2 = [0.1, 0.5, 1.0, 10.0, 100.0]
+# Phase 1과 Phase 2 모두 동일한 α 스윕 사용
+# (Phase 2도 5개 α 모두 실험 완료됨)
 
 # 색상 팔레트
 WEIGHT_COLORS = {
@@ -83,7 +83,7 @@ def safe_load_json(p):
 def collect_all_kd_metrics(phase):
     """해당 phase의 모든 KD run 결과를 DataFrame으로."""
     rows = []
-    alphas = ALPHAS if phase == 1 else ALPHAS_PHASE2
+    alphas = ALPHAS  # Phase 1, 2 동일
     for alpha in alphas:
         for seed in SEEDS:
             for w in WEIGHTINGS:
@@ -106,7 +106,7 @@ def collect_all_kd_metrics(phase):
 def collect_teacher_metadata(phase):
     """Teacher 관련 메타데이터 수집."""
     data = {}
-    alphas = ALPHAS if phase == 1 else ALPHAS_PHASE2
+    alphas = ALPHAS  # Phase 1, 2 동일
     for alpha in alphas:
         for seed in SEEDS:
             meta = safe_load_json(teachers_dir(alpha, seed, phase=phase) / "metadata.json")
@@ -137,7 +137,7 @@ def fig1_partition_visualization(phase, seed=42):
     print(f"\n[Figure 1] phase{phase} 파티션 시각화 생성 중...")
 
     FIG_DIR = fig_dir_for(phase)
-    alphas = ALPHAS if phase == 1 else ALPHAS_PHASE2
+    alphas = ALPHAS  # Phase 1, 2 동일
 
     # 라벨 로드 (targets는 한 번만 읽으면 됨)
     # parquet에서 label 컬럼만 추출 — 이미지 바이트는 건드리지 않아 빠름
@@ -233,7 +233,7 @@ def fig2_teacher_performance(phase, seed=42):
     print(f"\n[Figure 2] phase{phase} Teacher 성능 시각화 생성 중...")
 
     FIG_DIR = fig_dir_for(phase)
-    alphas = ALPHAS if phase == 1 else ALPHAS_PHASE2
+    alphas = ALPHAS  # Phase 1, 2 동일
 
     # Fig 2a: Expertise Matrix α별 히트맵
     fig, axes = plt.subplots(1, len(alphas), figsize=(4 * len(alphas), 3.8),
@@ -300,7 +300,7 @@ def fig3_logit_quality(phase):
     print(f"\n[Figure 3] phase{phase} Logit quality 시각화 생성 중...")
 
     FIG_DIR = fig_dir_for(phase)
-    alphas = ALPHAS if phase == 1 else ALPHAS_PHASE2
+    alphas = ALPHAS  # Phase 1, 2 동일
 
     # 지표 수집
     entropy_by_alpha = defaultdict(list)        # alpha -> [sample entropies...]
@@ -405,7 +405,7 @@ def fig4_student_results(df: pd.DataFrame, bounds_map: dict, phase: int):
     print(f"\n[Figure 4] phase{phase} Student 결과 시각화 생성 중...")
 
     FIG_DIR = fig_dir_for(phase)
-    alphas = ALPHAS if phase == 1 else ALPHAS_PHASE2
+    alphas = ALPHAS  # Phase 1, 2 동일
 
     # 평균 bounds
     lower_mean = np.nanmean([bounds_map[s]["lower"] for s in SEEDS
@@ -413,13 +413,14 @@ def fig4_student_results(df: pd.DataFrame, bounds_map: dict, phase: int):
     upper_mean = np.nanmean([bounds_map[s]["upper"] for s in SEEDS
                              if bounds_map[s]["upper"] is not None])
 
-    # --- Fig 4a: Teacher F1 vs Student Acc (모든 weighting) ---
-    # 좌측 y축: Teacher의 전문 클래스 평균 F1 (Teacher의 도메인 내 분류 능력)
+    # --- Fig 4a: Teacher best-class F1 vs Student Acc (모든 weighting) ---
+    # 좌측 y축: 각 Teacher의 best class F1 (가장 잘하는 클래스 1개의 F1)
+    #          → α↓일수록 일부 클래스에 집중 학습 → best class F1 ↑ (전문성 깊이)
     # 우측 y축: Student global accuracy (Uniform / Top-1 / Top-3 모두 표시)
-    # 핵심 메시지: α↓ → Teacher F1 ↑ (전문성 강해짐) BUT Student Acc는 다양하게 변함
+    # 핵심 메시지: α↓ → Teacher가 자기 분야에서는 강해짐 BUT Student는 향상되지 않음
     fig, ax1 = plt.subplots(figsize=(10, 6))
 
-    # Teacher F1: α별 평균 (전문 클래스만, F1>0.5의 평균)
+    # Teacher best-class F1: 각 Teacher의 max F1 → seed × Teacher 수만큼 값
     teacher_f1_means, teacher_f1_stds = [], []
     for alpha in alphas:
         vals = []
@@ -427,12 +428,10 @@ def fig4_student_results(df: pd.DataFrame, bounds_map: dict, phase: int):
             exp_path = teachers_dir(alpha, seed, phase=phase) / "expertise.npz"
             if not exp_path.exists():
                 continue
-            f1 = np.load(exp_path)["f1"]
-            # 각 Teacher별 전문 클래스 평균 F1
+            f1 = np.load(exp_path)["f1"]   # (K, C)
+            # 각 Teacher의 best class F1 (가장 잘하는 클래스 1개의 F1)
             for k in range(NUM_CLIENTS):
-                expert_f1 = f1[k][f1[k] > 0.5]
-                if len(expert_f1) > 0:
-                    vals.append(expert_f1.mean())
+                vals.append(f1[k].max())
         teacher_f1_means.append(np.mean(vals) if vals else np.nan)
         teacher_f1_stds.append(np.std(vals) if vals else 0)
 
@@ -441,9 +440,9 @@ def fig4_student_results(df: pd.DataFrame, bounds_map: dict, phase: int):
         xs, teacher_f1_means, yerr=teacher_f1_stds,
         fmt="o-", color="#F59E0B", markersize=10,
         linewidth=2.5, capsize=5,
-        label="Teacher F1 (expert classes; left axis)")
+        label="Teacher best-class F1 (left axis)")
     ax1.set_xlabel("Dirichlet α")
-    ax1.set_ylabel("Teacher per-class F1 (expert classes only)",
+    ax1.set_ylabel("Teacher best-class F1\n(top-1 F1 across classes)",
                    color="#F59E0B", fontsize=11)
     ax1.tick_params(axis="y", labelcolor="#F59E0B")
     ax1.set_xticks(xs)
@@ -487,9 +486,9 @@ def fig4_student_results(df: pd.DataFrame, bounds_map: dict, phase: int):
     ax1.legend(lines1 + lines2, labels1 + labels2,
                loc="lower right", fontsize=9, framealpha=0.95)
 
-    plt.title(f"Figure 4a — Teacher expertise (left) vs Student accuracy (right), "
+    plt.title(f"Figure 4a — Teacher best-class F1 (left) vs Student accuracy (right), "
               f"phase{phase}\n"
-              f"left axis: Teacher's per-class F1 in expert classes  |  "
+              f"left axis: each Teacher's top-1 F1 across classes  |  "
               f"right axis: Student global accuracy by weighting",
               fontsize=10)
     plt.tight_layout()
