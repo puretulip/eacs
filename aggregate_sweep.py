@@ -413,50 +413,72 @@ def fig4_student_results(df: pd.DataFrame, bounds_map: dict, phase: int):
     upper_mean = np.nanmean([bounds_map[s]["upper"] for s in SEEDS
                              if bounds_map[s]["upper"] is not None])
 
-    # --- Fig 4a: Teacher best-class F1 vs Student Acc (모든 weighting) ---
-    # 좌측 y축: 각 Teacher의 best class F1 (가장 잘하는 클래스 1개의 F1)
-    #          → α↓일수록 일부 클래스에 집중 학습 → best class F1 ↑ (전문성 깊이)
-    # 우측 y축: Student global accuracy (Uniform / Top-1 / Top-3 모두 표시)
-    # 핵심 메시지: α↓ → Teacher가 자기 분야에서는 강해짐 BUT Student는 향상되지 않음
-    fig, ax1 = plt.subplots(figsize=(10, 6))
+    # --- Fig 4a: Teacher 3가지 집계 vs Student 3가지 weighting ---
+    # 좌측 y축 (3개 곡선): Teacher F1을 다음 3가지로 집계
+    #   - top-1: 각 Teacher의 best class F1 (max)
+    #   - top-3: 각 Teacher의 상위 3개 F1 평균
+    #   - uniform: 각 Teacher의 모든 클래스 F1 평균 (macro)
+    # 우측 y축 (3개 곡선): Student global accuracy (Uniform / Top-1 / Top-3)
+    # 의도: 같은 이름 집계 방식(Teacher 차원 vs KD 차원)을 비교 가능하게 함
+    fig, ax1 = plt.subplots(figsize=(11, 6.5))
 
-    # Teacher best-class F1: 각 Teacher의 max F1 → seed × Teacher 수만큼 값
-    teacher_f1_means, teacher_f1_stds = [], []
+    # ---- Teacher 측: 3가지 집계 방법 ----
+    teacher_aggregations = {
+        "top-1":   {"color": "#EA580C", "marker": "o"},  # 진한 주황
+        "top-3":   {"color": "#F59E0B", "marker": "^"},  # 중간 주황
+        "uniform": {"color": "#FDBA74", "marker": "D"},  # 연한 주황
+    }
+
+    teacher_results = {agg: ([], []) for agg in teacher_aggregations}
     for alpha in alphas:
-        vals = []
+        per_agg_vals = {agg: [] for agg in teacher_aggregations}
         for seed in SEEDS:
             exp_path = teachers_dir(alpha, seed, phase=phase) / "expertise.npz"
             if not exp_path.exists():
                 continue
             f1 = np.load(exp_path)["f1"]   # (K, C)
-            # 각 Teacher의 best class F1 (가장 잘하는 클래스 1개의 F1)
             for k in range(NUM_CLIENTS):
-                vals.append(f1[k].max())
-        teacher_f1_means.append(np.mean(vals) if vals else np.nan)
-        teacher_f1_stds.append(np.std(vals) if vals else 0)
+                f1_k = f1[k]
+                # top-1: best class F1
+                per_agg_vals["top-1"].append(float(f1_k.max()))
+                # top-3: 상위 3개 평균 (클래스 수가 3 이상이라고 가정)
+                top3_idx = np.argsort(f1_k)[-3:]
+                per_agg_vals["top-3"].append(float(f1_k[top3_idx].mean()))
+                # uniform: 모든 클래스 평균 (= macro F1)
+                per_agg_vals["uniform"].append(float(f1_k.mean()))
+        for agg in teacher_aggregations:
+            v = per_agg_vals[agg]
+            teacher_results[agg][0].append(np.mean(v) if v else np.nan)
+            teacher_results[agg][1].append(np.std(v) if v else 0)
 
     xs = np.arange(len(alphas))
-    line_teacher = ax1.errorbar(
-        xs, teacher_f1_means, yerr=teacher_f1_stds,
-        fmt="o-", color="#F59E0B", markersize=10,
-        linewidth=2.5, capsize=5,
-        label="Teacher best-class F1 (left axis)")
+
+    # 좌축에 Teacher 3개 곡선
+    for agg, style in teacher_aggregations.items():
+        means, stds = teacher_results[agg]
+        ax1.errorbar(
+            xs, means, yerr=stds,
+            fmt=f"{style['marker']}-", color=style["color"],
+            markersize=9, linewidth=2.5, capsize=4, alpha=0.95,
+            label=f"Teacher F1 — {agg} (left)")
+
     ax1.set_xlabel("Dirichlet α")
-    ax1.set_ylabel("Teacher best-class F1\n(top-1 F1 across classes)",
-                   color="#F59E0B", fontsize=11)
-    ax1.tick_params(axis="y", labelcolor="#F59E0B")
+    ax1.set_ylabel("Teacher F1 (left axis)", color="#9A3412", fontsize=11)
+    ax1.tick_params(axis="y", labelcolor="#9A3412")
     ax1.set_xticks(xs)
     ax1.set_xticklabels([str(a) for a in alphas])
     ax1.set_ylim(0, 1.0)
     ax1.grid(alpha=0.3)
 
-    # Student Acc — 세 weighting 모두 우측 y축에 표시
+    # ---- Student 측: 3가지 weighting (우축) ----
     ax2 = ax1.twinx()
+    student_styles = {
+        "uniform": {"color": "#1E40AF", "marker": "s"},  # 진한 파랑
+        "top_1":   {"color": "#DC2626", "marker": "v"},  # 빨강
+        "top_3":   {"color": "#059669", "marker": "P"},  # 초록
+    }
 
-    # weighting별 marker 구분
-    student_markers = {"uniform": "s", "top_1": "^", "top_3": "D"}
-
-    for w in WEIGHTINGS:
+    for w, style in student_styles.items():
         means, stds = [], []
         for alpha in alphas:
             sub = df[(df["alpha"] == alpha) & (df["weighting"] == w)]
@@ -465,12 +487,13 @@ def fig4_student_results(df: pd.DataFrame, bounds_map: dict, phase: int):
 
         ax2.errorbar(
             xs, means, yerr=stds,
-            fmt=f"{student_markers[w]}--", color=WEIGHT_COLORS[w],
+            fmt=f"{style['marker']}--", color=style["color"],
             markersize=9, linewidth=2, capsize=4, alpha=0.85,
-            label=f"Student Acc — {w} (right axis)")
+            label=f"Student Acc — {w} (right)")
 
-    ax2.set_ylabel("Student global accuracy", color="#1F2937", fontsize=11)
-    ax2.tick_params(axis="y", labelcolor="#1F2937")
+    ax2.set_ylabel("Student global accuracy (right axis)",
+                   color="#1E3A8A", fontsize=11)
+    ax2.tick_params(axis="y", labelcolor="#1E3A8A")
 
     # bounds 수평선
     ax2.axhline(y=lower_mean, color="gray", linestyle=":",
@@ -480,17 +503,18 @@ def fig4_student_results(df: pd.DataFrame, bounds_map: dict, phase: int):
                 alpha=0.7, linewidth=1.5,
                 label=f"Upper Bound ({upper_mean:.3f})")
 
-    # 통합 legend
+    # 통합 legend (우측 하단)
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
     ax1.legend(lines1 + lines2, labels1 + labels2,
-               loc="lower right", fontsize=9, framealpha=0.95)
+               loc="lower right", fontsize=8.5, framealpha=0.95, ncol=2)
 
-    plt.title(f"Figure 4a — Teacher best-class F1 (left) vs Student accuracy (right), "
-              f"phase{phase}\n"
-              f"left axis: each Teacher's top-1 F1 across classes  |  "
-              f"right axis: Student global accuracy by weighting",
-              fontsize=10)
+    plt.title(
+        f"Figure 4a — Teacher F1 (3 aggregations) vs Student Acc (3 weightings), "
+        f"phase{phase}\n"
+        f"warm colors (left) = Teacher's F1 by aggregation method  |  "
+        f"cool colors (right) = Student's global acc by KD weighting",
+        fontsize=10)
     plt.tight_layout()
     plt.savefig(FIG_DIR / "fig4a_main_inverse_correlation.png", dpi=150)
     plt.close()
